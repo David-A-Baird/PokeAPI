@@ -116,11 +116,97 @@ async function showPokemonByUrl(url) {
         info.appendChild(types);
     }
 
+    // Try to attach an audio player with the Pokemon's cry, using a few common sources
+    const audioContainer = document.createElement('div');
+    audioContainer.style.marginTop = '8px';
+    audioContainer.id = 'pokemon-audio';
+    info.appendChild(audioContainer);
+
+    (async () => {
+        try {
+            const urls = getAudioCandidateUrls(data);
+            const audioEl = await createAudioWithFallback(urls);
+            if (audioEl) {
+                audioEl.controls = true;
+                audioEl.preload = 'none';
+                audioContainer.appendChild(audioEl);
+            } else {
+                const p = document.createElement('p');
+                p.style.margin = '0';
+                p.style.fontSize = '0.9rem';
+                p.style.color = '#666';
+                p.textContent = 'No audio available';
+                audioContainer.appendChild(p);
+            }
+        } catch (err) {
+            console.debug('Audio load failed', err);
+        }
+    })();
+
     detail.appendChild(info);
 }
 
 function capitalize(s) {
     return String(s).charAt(0).toUpperCase() + String(s).slice(1);
+}
+
+// Build a set of likely audio URLs for a pokemon using its numeric id and name.
+function getAudioCandidateUrls(data) {
+    const id = data.id; // numeric id
+    const name = String(data.name || '').toLowerCase();
+
+    const normalize = (s) => s.replace(/[^a-z0-9-]/g, '-');
+
+    const candidates = [];
+
+    // PokemonShowdown cries by name (commonly available)
+    candidates.push(`https://play.pokemonshowdown.com/audio/cries/${normalize(name)}.mp3`);
+
+    // Bulbagarden archives by id (ogg)
+    if (Number.isInteger(id)) {
+        candidates.push(`https://archives.bulbagarden.net/media/sound/ogg/vg/cries/${id}.ogg`);
+        candidates.push(`https://pokemoncries.com/cries/${id}.mp3`);
+    }
+
+    // Some mirrors may host front_default-like filenames by name
+    candidates.push(`https://raw.githubusercontent.com/msikma/pokesprite/master/sprites/pokemon/384x384/${id}.png`);
+
+    // Remove duplicates while preserving order
+    return [...new Set(candidates)];
+}
+
+// Try to create an audio element by attempting each URL until one loads successfully.
+// Returns the audio element or null if none succeeded.
+function createAudioWithFallback(urls) {
+    return new Promise((resolve) => {
+        let i = 0;
+        const tryNext = () => {
+            if (i >= urls.length) return resolve(null);
+            const url = urls[i++];
+            const audio = document.createElement('audio');
+            audio.src = url;
+            // If the audio can play, resolve with this element
+            const onCanPlay = () => cleanup(true);
+            const onError = () => cleanup(false);
+
+            function cleanup(success) {
+                audio.removeEventListener('canplay', onCanPlay);
+                audio.removeEventListener('canplaythrough', onCanPlay);
+                audio.removeEventListener('error', onError);
+                if (success) return resolve(audio);
+                // try next URL
+                tryNext();
+            }
+
+            audio.addEventListener('canplay', onCanPlay);
+            audio.addEventListener('canplaythrough', onCanPlay);
+            audio.addEventListener('error', onError);
+            // trigger load
+            audio.load();
+        };
+
+        tryNext();
+    });
 }
 }
 
