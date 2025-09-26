@@ -21,8 +21,10 @@ function showError(parent, message) {
     parent.appendChild(p);
 }
 
-function renderPokemonList(parent, items) {
-    // Create (or reuse) a detail area at the top where the image/name will be shown
+let pokemonList = [];
+let currentIndex = 0;
+
+function renderNavigation(parent, items) {
     let detail = document.getElementById('pokemon-detail');
     if (!detail) {
         detail = document.createElement('div');
@@ -34,37 +36,44 @@ function renderPokemonList(parent, items) {
         parent.appendChild(detail);
     }
 
-    // Use ordered list so items are numbered automatically.
-    const ol = document.createElement('ol');
-    items.forEach((it, index) => {
-        const li = document.createElement('li');
-        li.textContent = `${index + 1}. ${it.name}`;
-        li.dataset.name = it.name;
-        // store the API url so we can fetch details later
-        li.dataset.url = it.url;
-        ol.appendChild(li);
-    });
+    let nav = document.getElementById('pokemon-nav');
+    if (!nav) {
+        nav = document.createElement('div');
+        nav.id = 'pokemon-nav';
+        nav.style.display = 'flex';
+        nav.style.gap = '8px';
+        nav.style.alignItems = 'center';
+        nav.style.marginBottom = '12px';
+        parent.appendChild(nav);
+    } else {
+        nav.innerHTML = '';
+    }
 
-    parent.appendChild(ol);
+    const prev = document.createElement('button');
+    prev.id = 'btn-prev';
+    prev.textContent = '◀ Previous';
+    prev.addEventListener('click', () => showPokemonByIndex(currentIndex - 1));
 
-    // Add a single delegated click listener to the ol for efficiency
-    ol.addEventListener('click', async (e) => {
-        const li = e.target.closest('li');
-        if (!li) return;
-        const url = li.dataset.url;
-        if (!url) return;
-        try {
-            await showPokemonByUrl(url);
-        } catch (err) {
-            console.error(err);
-        }
-    });
+    const next = document.createElement('button');
+    next.id = 'btn-next';
+    next.textContent = 'Next ▶';
+    next.addEventListener('click', () => showPokemonByIndex(currentIndex + 1));
 
-// Cache for fetched pokemon details by URL
+    const counter = document.createElement('div');
+    counter.id = 'nav-counter';
+    counter.style.marginLeft = '8px';
+    counter.style.fontSize = '0.95rem';
+
+    nav.appendChild(prev);
+    nav.appendChild(next);
+    nav.appendChild(counter);
+
+    updateNavState();
+}
+
 const detailsCache = new Map();
 
 async function fetchPokemonDetails(url) {
-    globalThis;
     if (detailsCache.has(url)) return detailsCache.get(url);
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Detail fetch failed: ${res.status} ${res.statusText}`);
@@ -73,22 +82,18 @@ async function fetchPokemonDetails(url) {
     return data;
 }
 
-// Show pokemon image and name in the detail area at the top
 async function showPokemonByUrl(url) {
     const detail = document.getElementById('pokemon-detail');
     if (!detail) throw new Error('Detail container missing');
 
-    // Clear existing contents
     detail.innerHTML = '';
 
-    // Small loading indicator while fetching details
     const loading = document.createElement('span');
     loading.textContent = 'Loading...';
     detail.appendChild(loading);
 
     const data = await fetchPokemonDetails(url);
 
-    // Choose best available image: official artwork -> front_default
     const artwork = (data.sprites && data.sprites.other && data.sprites.other['official-artwork'] && data.sprites.other['official-artwork'].front_default) || data.sprites.front_default || null;
 
     detail.innerHTML = '';
@@ -106,9 +111,11 @@ async function showPokemonByUrl(url) {
     const title = document.createElement('h2');
     title.textContent = capitalize(data.name);
     title.style.margin = '0';
+   title.style.cursor = 'pointer';
+    title.title = 'Click for more details';
+    title.addEventListener('click', () => showFullDetails(data));
     info.appendChild(title);
 
-    // Optionally show types
     if (Array.isArray(data.types)) {
         const types = document.createElement('p');
         types.style.margin = '4px 0 0 0';
@@ -116,7 +123,6 @@ async function showPokemonByUrl(url) {
         info.appendChild(types);
     }
 
-    // Try to attach an audio player with the Pokemon's cry, using a few common sources
     const audioContainer = document.createElement('div');
     audioContainer.style.marginTop = '8px';
     audioContainer.id = 'pokemon-audio';
@@ -146,11 +152,77 @@ async function showPokemonByUrl(url) {
     detail.appendChild(info);
 }
 
+function showFullDetails(data) {
+    const app = document.getElementById('app');
+    if (!app) return;
+
+    let panel = document.getElementById('pokemon-full-details');
+    if (!panel) {
+        panel = document.createElement('section');
+        panel.id = 'pokemon-full-details';
+        panel.style.marginTop = '12px';
+        panel.style.padding = '12px';
+        panel.style.border = '1px solid #eee';
+        panel.style.borderRadius = '8px';
+        panel.style.background = '#fff';
+        app.appendChild(panel);
+    }
+
+    panel.innerHTML = '';
+
+    const heading = document.createElement('h3');
+    heading.textContent = `Details — ${capitalize(data.name)} (#${data.id})`;
+    heading.style.marginTop = '0';
+    panel.appendChild(heading);
+
+    const basics = document.createElement('p');
+    basics.textContent = `Height: ${data.height} | Weight: ${data.weight}`;
+    panel.appendChild(basics);
+
+    if (Array.isArray(data.abilities)) {
+        const ab = document.createElement('p');
+        ab.style.margin = '6px 0 0 0';
+        ab.textContent = 'Abilities: ' + data.abilities.map(a => capitalize(a.ability.name) + (a.is_hidden ? ' (hidden)' : '')).join(', ');
+        panel.appendChild(ab);
+    }
+
+    if (Array.isArray(data.stats)) {
+        const statsWrap = document.createElement('div');
+        statsWrap.style.marginTop = '8px';
+        const statsTitle = document.createElement('strong');
+        statsTitle.textContent = 'Stats:';
+        statsWrap.appendChild(statsTitle);
+        const ul = document.createElement('ul');
+        ul.style.margin = '6px 0 0 16px';
+        data.stats.forEach(s => {
+            const li = document.createElement('li');
+            li.textContent = `${capitalize(s.stat.name)}: ${s.base_stat}`;
+            ul.appendChild(li);
+        });
+        statsWrap.appendChild(ul);
+        panel.appendChild(statsWrap);
+    }
+
+    if (Array.isArray(data.moves)) {
+        const mv = document.createElement('div');
+        mv.style.marginTop = '8px';
+        const mvTitle = document.createElement('strong');
+        mvTitle.textContent = 'Moves (sample):';
+        mv.appendChild(mvTitle);
+        const list = document.createElement('p');
+        list.style.margin = '6px 0 0 0';
+        list.textContent = data.moves.slice(0, 8).map(m => capitalize(m.move.name)).join(', ');
+        mv.appendChild(list);
+        panel.appendChild(mv);
+    }
+
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function capitalize(s) {
     return String(s).charAt(0).toUpperCase() + String(s).slice(1);
 }
 
-// Build a set of likely audio URLs for a pokemon using its numeric id and name.
 function getAudioCandidateUrls(data) {
     const id = data.id; // numeric id
     const name = String(data.name || '').toLowerCase();
@@ -159,24 +231,18 @@ function getAudioCandidateUrls(data) {
 
     const candidates = [];
 
-    // PokemonShowdown cries by name (commonly available)
     candidates.push(`https://play.pokemonshowdown.com/audio/cries/${normalize(name)}.mp3`);
 
-    // Bulbagarden archives by id (ogg)
     if (Number.isInteger(id)) {
         candidates.push(`https://archives.bulbagarden.net/media/sound/ogg/vg/cries/${id}.ogg`);
         candidates.push(`https://pokemoncries.com/cries/${id}.mp3`);
     }
 
-    // Some mirrors may host front_default-like filenames by name
     candidates.push(`https://raw.githubusercontent.com/msikma/pokesprite/master/sprites/pokemon/384x384/${id}.png`);
 
-    // Remove duplicates while preserving order
     return [...new Set(candidates)];
 }
 
-// Try to create an audio element by attempting each URL until one loads successfully.
-// Returns the audio element or null if none succeeded.
 function createAudioWithFallback(urls) {
     return new Promise((resolve) => {
         let i = 0;
@@ -185,7 +251,6 @@ function createAudioWithFallback(urls) {
             const url = urls[i++];
             const audio = document.createElement('audio');
             audio.src = url;
-            // If the audio can play, resolve with this element
             const onCanPlay = () => cleanup(true);
             const onError = () => cleanup(false);
 
@@ -194,7 +259,6 @@ function createAudioWithFallback(urls) {
                 audio.removeEventListener('canplaythrough', onCanPlay);
                 audio.removeEventListener('error', onError);
                 if (success) return resolve(audio);
-                // try next URL
                 tryNext();
             }
 
@@ -208,6 +272,30 @@ function createAudioWithFallback(urls) {
         tryNext();
     });
 }
+
+function updateNavState() {
+    const prev = document.getElementById('btn-prev');
+    const next = document.getElementById('btn-next');
+    const counter = document.getElementById('nav-counter');
+    if (!prev || !next || !counter) return;
+
+    prev.disabled = currentIndex <= 0;
+    next.disabled = currentIndex >= Math.max(0, pokemonList.length - 1);
+    counter.textContent = `${currentIndex + 1} / ${pokemonList.length}`;
+}
+
+async function showPokemonByIndex(index) {
+    if (!Array.isArray(pokemonList) || pokemonList.length === 0) return;
+    if (index < 0) index = 0;
+    if (index >= pokemonList.length) index = pokemonList.length - 1;
+    currentIndex = index;
+    updateNavState();
+    const url = pokemonList[currentIndex].url;
+    try {
+        await showPokemonByUrl(url);
+    } catch (err) {
+        console.error('Failed to load pokemon details for index', currentIndex, err);
+    }
 }
 
 async function init() {
@@ -221,16 +309,10 @@ async function init() {
     try {
         const pokemon = await fetchAllPokemon();
         loading.remove();
-        renderPokemonList(app, pokemon);
-        // Default to first element of the API if nothing has been clicked
-        if (pokemon.length > 0) {
-            // Show the first pokemon's details (use its url)
-            const firstUrl = pokemon[0].url;
-            try {
-                await showPokemonByUrl(firstUrl);
-            } catch (oops) {
-                console.error('Failed to show default pokemon:', oops);
-            }
+        pokemonList = pokemon;
+        renderNavigation(app, pokemonList);
+        if (pokemonList.length > 0) {
+            await showPokemonByIndex(0);
         }
     } catch (err) {
         loading.remove();
